@@ -2,5 +2,4 @@ test.ipynb
 __pycache__/
 # ignore data
 data/*
-output_origin/
-output/*
+output*

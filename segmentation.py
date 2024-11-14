@@ -144,7 +144,7 @@ def raster2array(geotif_file):
         )
 
         raster = dataset.GetRasterBand(1)
-        metadata['noDataValue'] = raster.GetNoDataValue()
+        metadata['noDataValue'] = raster.GetNoDataValue() if raster.GetNoDataValue() else 0
         metadata['scaleFactor'] = raster.GetScale()
 
         metadata['bandstats'] = {}

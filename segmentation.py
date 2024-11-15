@@ -48,7 +48,7 @@ def run_segmentation(chm_name,
         # min_distance=LOCAL_MAXI_WINDOW,
         footprint=np.ones((5, 5)),
         threshold_abs=min_tree_height,
-        exclude_border=False
+        exclude_border=True
         )
     
     local_maxi_mask = np.zeros_like(chm_array_smooth, dtype=int)
@@ -121,31 +121,29 @@ def raster2array(geotif_file):
         raise ValueError('Function only supports single band data')
 
     metadata = {}
-    metadata['RasterYSize'] = dataset.RasterYSize # Not the size of pixel, but size of the raster in pixels
-    metadata['RasterXSize'] = dataset.RasterXSize
+    metadata['RasterYSize'], metadata['RasterXSize'] = dataset.RasterYSize, dataset.RasterXSize
     metadata['driver'] = dataset.GetDriver().LongName
     metadata['projection'] = dataset.GetProjection()
     metadata['epsg'] = int(osr.SpatialReference(wkt=dataset.GetProjection()).GetAttrValue('AUTHORITY',1))
     metadata['geotransform'] = dataset.GetGeoTransform()
+    metadata['pixelWidth'], metadata['pixelHeight'] = metadata['geotransform'][1], metadata['geotransform'][5]
 
-    metadata['pixelWidth'] = metadata['geotransform'][1]
-    metadata['pixelHeight'] = metadata['geotransform'][5]
-
-    metadata["extent_dict"] = {}
-    metadata["extent_dict"]["xMin"] = metadata['geotransform'][0]
-    metadata["extent_dict"]["xMax"] = metadata['geotransform'][0] + dataset.RasterXSize * metadata['geotransform'][1]
-    metadata["extent_dict"]["yMin"] = metadata['geotransform'][3] + dataset.RasterYSize * metadata['geotransform'][5]
-    metadata["extent_dict"]["yMax"] = metadata['geotransform'][3]
+    metadata["extent_dict"] = {
+        "xMin": metadata['geotransform'][0],
+        "xMax": metadata['geotransform'][0] + dataset.RasterXSize * metadata['geotransform'][1],
+        "yMin": metadata['geotransform'][3] + dataset.RasterYSize * metadata['geotransform'][5],
+        "yMax": metadata['geotransform'][3],
+        }
 
     metadata["extent"] = (
         metadata["extent_dict"]["xMin"],
         metadata["extent_dict"]["xMax"],
         metadata["extent_dict"]["yMin"],
         metadata["extent_dict"]["yMax"],
-    )
+        )
 
     raster = dataset.GetRasterBand(1)
-    metadata['noDataValue'] = raster.GetNoDataValue() if raster.GetNoDataValue() else 0
+    metadata['noDataValue'] = raster.GetNoDataValue() if raster.GetNoDataValue() else -9999
     metadata['scaleFactor'] = raster.GetScale()
 
     metadata['bandstats'] = {}
@@ -155,8 +153,8 @@ def raster2array(geotif_file):
     metadata["bandstats"]["mean"] = round(stats[2], 2)
     metadata["bandstats"]["stdev"] = round(stats[3], 2)
 
-    array = dataset.GetRasterBand(1).ReadAsArray().astype(np.float32)
-    array[array == int(metadata["noDataValue"])] = np.nan
+    array = raster.ReadAsArray().astype(np.float32)
+    array[array == metadata["noDataValue"]] = np.nan
     array = array / metadata["scaleFactor"]
     return array, metadata
 
@@ -178,8 +176,7 @@ def array2raster(array, file_path, metadata):
     None
         Creates a GeoTIFF file at the specified location.
     """
-    cols = array.shape[1]
-    rows = array.shape[0]
+    cols, rows = array.shape[1], array.shape[0]
 
     output_dir = os.path.dirname(file_path)
     if not os.path.exists(output_dir):
@@ -191,6 +188,7 @@ def array2raster(array, file_path, metadata):
                                metadata['extent_dict']['yMax'], 0, metadata['pixelHeight']))
     outband = outRaster.GetRasterBand(1)
     outband.WriteArray(array)
+    outband.SetNoDataValue(-9999)
     outRasterSRS = osr.SpatialReference()
     outRasterSRS.ImportFromEPSG(metadata['epsg'])
     outRaster.SetProjection(outRasterSRS.ExportToWkt())
@@ -313,7 +311,3 @@ def local_maxima_to_points(local_maxi_coords, chm_array, metadata):
     gdf.to_file(output_file)
 
     return gdf
-
-
-if __name__ == "__main__":
-    run_segmentation()

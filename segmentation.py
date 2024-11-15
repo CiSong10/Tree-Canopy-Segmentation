@@ -119,49 +119,46 @@ def raster2array(geotif_file):
     dataset = gdal.Open(geotif_file)
     if dataset.RasterCount != 1:
         raise ValueError('Function only supports single band data')
-    else:
-        metadata = {}
-        metadata['array_rows'] = dataset.RasterYSize
-        metadata['array_cols'] = dataset.RasterXSize
-        metadata['driver'] = dataset.GetDriver().LongName
-        metadata['projection'] = dataset.GetProjection()
-        metadata['epsg'] = int(osr.SpatialReference(wkt=dataset.GetProjection()).GetAttrValue('AUTHORITY',1))
-        metadata['geotransform'] = dataset.GetGeoTransform()
 
-        mapinfo = dataset.GetGeoTransform()
-        metadata['pixelWidth'] = mapinfo[1]
-        metadata['pixelHeight'] = mapinfo[5]
+    metadata = {}
+    metadata['RasterYSize'] = dataset.RasterYSize # Not the size of pixel, but size of the raster in pixels
+    metadata['RasterXSize'] = dataset.RasterXSize
+    metadata['driver'] = dataset.GetDriver().LongName
+    metadata['projection'] = dataset.GetProjection()
+    metadata['epsg'] = int(osr.SpatialReference(wkt=dataset.GetProjection()).GetAttrValue('AUTHORITY',1))
+    metadata['geotransform'] = dataset.GetGeoTransform()
 
-        metadata["ext_dict"] = {}
-        metadata["ext_dict"]["xMin"] = mapinfo[0]
-        metadata["ext_dict"]["xMax"] = mapinfo[0] + dataset.RasterXSize * mapinfo[1]
-        metadata["ext_dict"]["yMin"] = mapinfo[3] + dataset.RasterYSize * mapinfo[5]
-        metadata["ext_dict"]["yMax"] = mapinfo[3]
+    metadata['pixelWidth'] = metadata['geotransform'][1]
+    metadata['pixelHeight'] = metadata['geotransform'][5]
 
-        metadata["extent"] = (
-            metadata["ext_dict"]["xMin"],
-            metadata["ext_dict"]["xMax"],
-            metadata["ext_dict"]["yMin"],
-            metadata["ext_dict"]["yMax"],
-        )
+    metadata["extent_dict"] = {}
+    metadata["extent_dict"]["xMin"] = metadata['geotransform'][0]
+    metadata["extent_dict"]["xMax"] = metadata['geotransform'][0] + dataset.RasterXSize * metadata['geotransform'][1]
+    metadata["extent_dict"]["yMin"] = metadata['geotransform'][3] + dataset.RasterYSize * metadata['geotransform'][5]
+    metadata["extent_dict"]["yMax"] = metadata['geotransform'][3]
 
-        raster = dataset.GetRasterBand(1)
-        metadata['noDataValue'] = raster.GetNoDataValue() if raster.GetNoDataValue() else 0
-        metadata['scaleFactor'] = raster.GetScale()
+    metadata["extent"] = (
+        metadata["extent_dict"]["xMin"],
+        metadata["extent_dict"]["xMax"],
+        metadata["extent_dict"]["yMin"],
+        metadata["extent_dict"]["yMax"],
+    )
 
-        metadata['bandstats'] = {}
-        stats = raster.GetStatistics(True, True)
-        metadata["bandstats"]["min"] = round(stats[0], 2)
-        metadata["bandstats"]["max"] = round(stats[1], 2)
-        metadata["bandstats"]["mean"] = round(stats[2], 2)
-        metadata["bandstats"]["stdev"] = round(stats[3], 2)
+    raster = dataset.GetRasterBand(1)
+    metadata['noDataValue'] = raster.GetNoDataValue() if raster.GetNoDataValue() else 0
+    metadata['scaleFactor'] = raster.GetScale()
 
-        array = dataset.GetRasterBand(1).ReadAsArray(
-            0, 0, metadata['array_cols'], metadata['array_rows']
-        ).astype(np.float32)
-        array[array == int(metadata["noDataValue"])] = np.nan
-        array = array / metadata["scaleFactor"]
-        return array, metadata
+    metadata['bandstats'] = {}
+    stats = raster.GetStatistics(True, True)
+    metadata["bandstats"]["min"] = round(stats[0], 2)
+    metadata["bandstats"]["max"] = round(stats[1], 2)
+    metadata["bandstats"]["mean"] = round(stats[2], 2)
+    metadata["bandstats"]["stdev"] = round(stats[3], 2)
+
+    array = dataset.GetRasterBand(1).ReadAsArray().astype(np.float32)
+    array[array == int(metadata["noDataValue"])] = np.nan
+    array = array / metadata["scaleFactor"]
+    return array, metadata
 
 
 def array2raster(array, file_path, metadata):
@@ -190,8 +187,8 @@ def array2raster(array, file_path, metadata):
 
     driver = gdal.GetDriverByName('GTiff')
     outRaster = driver.Create(file_path, cols, rows, 1, gdal.GDT_Float32)
-    outRaster.SetGeoTransform((metadata['ext_dict']['xMin'], metadata['pixelWidth'], 0, 
-                               metadata['ext_dict']['yMax'], 0, metadata['pixelHeight']))
+    outRaster.SetGeoTransform((metadata['extent_dict']['xMin'], metadata['pixelWidth'], 0, 
+                               metadata['extent_dict']['yMax'], 0, metadata['pixelHeight']))
     outband = outRaster.GetRasterBand(1)
     outband.WriteArray(array)
     outRasterSRS = osr.SpatialReference()

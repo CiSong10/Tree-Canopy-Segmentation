@@ -3,3 +3,4 @@ __pycache__/
 # ignore data
 data/*
 output*
+main.py

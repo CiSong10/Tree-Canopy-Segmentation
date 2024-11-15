@@ -25,6 +25,8 @@ def run_segmentation(chm_name,
     """
     # Load and process CHM
     chm_file = os.path.join(data_dir, chm_name)
+    if not os.path.exists(chm_file):
+        raise FileNotFoundError(f"The file '{chm_file}' does not exist.")
     basename = os.path.basename(chm_file)[0:-4]
     chm_array, chm_array_metadata = raster2array(chm_file)
     chm_array[chm_array < min_tree_height] = 0
@@ -181,7 +183,7 @@ def array2raster(array, file_path, metadata):
     """
     cols = array.shape[1]
     rows = array.shape[0]
-    
+
     output_dir = os.path.dirname(file_path)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

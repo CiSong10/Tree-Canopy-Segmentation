@@ -25,8 +25,6 @@ def run_segmentation(chm_name,
     """
     # Load and process CHM
     chm_file = os.path.join(data_dir, chm_name)
-    if not os.path.exists(chm_file):
-        raise FileNotFoundError(f"The file '{chm_file}' does not exist.")
     basename = os.path.basename(chm_file)[0:-4]
     chm_array, chm_array_metadata = raster2array(chm_file)
     chm_array[chm_array < min_tree_height] = 0
@@ -116,6 +114,8 @@ def raster2array(geotif_file):
     ValueError
         If the input raster has more than one band.
     """
+    if not os.path.exists(geotif_file):
+        raise FileNotFoundError(f"The file '{geotif_file}' does not exist.")
     dataset = gdal.Open(geotif_file)
     if dataset.RasterCount != 1:
         raise ValueError('Function only supports single band data')

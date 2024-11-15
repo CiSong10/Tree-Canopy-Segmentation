@@ -10,7 +10,7 @@ from shapely.geometry import Point, Polygon, MultiPolygon
 
 
 def run_segmentation(chm_name,
-                     data_path="data", output_path="output", 
+                     data_dir="data", output_dir="output", 
                      smoothing_sigma=1.5,
                      compactness=0, 
                      min_tree_height=2.5, min_crown_area=15, min_circularity=0,
@@ -24,7 +24,7 @@ def run_segmentation(chm_name,
     6. Saves results as raster and vector files
     """
     # Load and process CHM
-    chm_file = os.path.join(data_path, chm_name)
+    chm_file = os.path.join(data_dir, chm_name)
     basename = os.path.basename(chm_file)[0:-4]
     chm_array, chm_array_metadata = raster2array(chm_file)
     chm_array[chm_array < min_tree_height] = 0
@@ -32,15 +32,15 @@ def run_segmentation(chm_name,
     # Smooth CHM
     chm_array_smooth = ndi.gaussian_filter(
         chm_array, smoothing_sigma, mode='constant', truncate=2.0
-    )
+        )
     chm_array_smooth[chm_array == 0] = 0
 
     # Save smoothed CHM
     array2raster(
-        os.path.join(output_path, basename + '_smoothed.tif'),
-        (chm_array_metadata['ext_dict']['xMin'], chm_array_metadata['ext_dict']['yMax']),
-        1, -1, np.array(chm_array_smooth, dtype=float), chm_array_metadata['epsg']
-    )
+        np.array(chm_array_smooth, dtype=float),
+        os.path.join(output_dir, basename + '_smoothed.tif'),
+        chm_array_metadata
+        )
 
     # Detect tree tops
     local_maxi_coords = peak_local_max(
@@ -49,7 +49,7 @@ def run_segmentation(chm_name,
         footprint=np.ones((5, 5)),
         threshold_abs=min_tree_height,
         exclude_border=False
-    )
+        )
     
     local_maxi_mask = np.zeros_like(chm_array_smooth, dtype=int)
     local_maxi_mask[tuple(local_maxi_coords.T)] = 1
@@ -61,25 +61,25 @@ def run_segmentation(chm_name,
     chm_labels = watershed(chm_array_smooth, markers, mask=chm_mask, compactness=compactness)
 
     array2raster(
-        os.path.join(output_path, basename + '_labels.tif'),
-        (chm_array_metadata['ext_dict']['xMin'], chm_array_metadata['ext_dict']['yMax']),
-        1, -1, np.array(chm_labels), chm_array_metadata['epsg']
-    )
+        np.array(chm_labels),
+        os.path.join(output_dir, basename + '_labels.tif'),
+        chm_array_metadata
+        )
     
     filtered_labels = filter_segments(chm_labels, chm_array_smooth, min_crown_area, min_circularity)
 
     array2raster(
-        os.path.join(output_path, basename + '_labels_filtered.tif'),
-        (chm_array_metadata['ext_dict']['xMin'], chm_array_metadata['ext_dict']['yMax']),
-        1, -1, np.array(filtered_labels), chm_array_metadata['epsg']
-    )
+        np.array(filtered_labels),
+        os.path.join(output_dir, basename + '_labels_filtered.tif'),
+        chm_array_metadata
+        )
 
     tree_tops = local_maxima_to_points(
         local_maxi_coords,
         chm_array_smooth,
         metadata=chm_array_metadata
-    )
-    tree_tops.to_file(os.path.join(output_path, basename + '_tree_tops.shp'))
+        )
+    tree_tops.to_file(os.path.join(output_dir, basename + '_tree_tops.shp'))
 
 
 def raster2array(geotif_file):
@@ -132,8 +132,8 @@ def raster2array(geotif_file):
 
         metadata["ext_dict"] = {}
         metadata["ext_dict"]["xMin"] = mapinfo[0]
-        metadata["ext_dict"]["xMax"] = mapinfo[0] + dataset.RasterXSize / mapinfo[1]
-        metadata["ext_dict"]["yMin"] = mapinfo[3] + dataset.RasterYSize / mapinfo[5]
+        metadata["ext_dict"]["xMax"] = mapinfo[0] + dataset.RasterXSize * mapinfo[1]
+        metadata["ext_dict"]["yMin"] = mapinfo[3] + dataset.RasterYSize * mapinfo[5]
         metadata["ext_dict"]["yMax"] = mapinfo[3]
 
         metadata["extent"] = (
@@ -162,23 +162,17 @@ def raster2array(geotif_file):
         return array, metadata
 
 
-def array2raster(newRasterfn, rasterOrigin, pixelWidth, pixelHeight, array, epsg):
+def array2raster(array, file_path, metadata):
     """Save a numpy array as a GeoTIFF raster file.
 
     Parameters
     ----------
-    newRasterfn : str
-        Path to the output GeoTIFF file.
-    rasterOrigin : tuple
-        (x, y) coordinates of the raster's origin (top-left corner).
-    pixelWidth : float
-        Width of a pixel in map units.
-    pixelHeight : float
-        Height of a pixel in map units.
     array : numpy.ndarray
         2D array containing the raster data.
-    epsg : int
-        EPSG code of the spatial reference system.
+    file_path : str
+        Path to the output GeoTIFF file.
+    metadata : dict
+        Metadata dictionary from raster2array function containing geotransform and projection information.
 
     Returns
     -------
@@ -187,20 +181,19 @@ def array2raster(newRasterfn, rasterOrigin, pixelWidth, pixelHeight, array, epsg
     """
     cols = array.shape[1]
     rows = array.shape[0]
-    originX = rasterOrigin[0]
-    originY = rasterOrigin[1]
-
-    output_dir = os.path.dirname(newRasterfn)
+    
+    output_dir = os.path.dirname(file_path)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     driver = gdal.GetDriverByName('GTiff')
-    outRaster = driver.Create(newRasterfn, cols, rows, 1, gdal.GDT_Float32)
-    outRaster.SetGeoTransform((originX, pixelWidth, 0, originY, 0, pixelHeight))
+    outRaster = driver.Create(file_path, cols, rows, 1, gdal.GDT_Float32)
+    outRaster.SetGeoTransform((metadata['ext_dict']['xMin'], metadata['pixelWidth'], 0, 
+                               metadata['ext_dict']['yMax'], 0, metadata['pixelHeight']))
     outband = outRaster.GetRasterBand(1)
     outband.WriteArray(array)
     outRasterSRS = osr.SpatialReference()
-    outRasterSRS.ImportFromEPSG(epsg)
+    outRasterSRS.ImportFromEPSG(metadata['epsg'])
     outRaster.SetProjection(outRasterSRS.ExportToWkt())
     outband.FlushCache()
 

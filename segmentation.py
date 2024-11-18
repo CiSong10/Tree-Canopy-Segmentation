@@ -37,7 +37,7 @@ def run_segmentation(chm_name,
 
     # Save smoothed CHM
     array2raster(
-        np.array(chm_array_smooth, dtype=float),
+        chm_array_smooth,
         os.path.join(output_dir, basename + '_smoothed.tif'),
         chm_array_metadata
         )
@@ -61,7 +61,7 @@ def run_segmentation(chm_name,
     chm_labels = watershed(chm_array_smooth, markers, mask=chm_mask, compactness=compactness)
 
     array2raster(
-        np.array(chm_labels),
+        chm_labels,
         os.path.join(output_dir, basename + '_labels.tif'),
         chm_array_metadata
         )
@@ -69,7 +69,7 @@ def run_segmentation(chm_name,
     filtered_labels = filter_segments(chm_labels, chm_array_smooth, min_crown_area, min_circularity)
 
     array2raster(
-        np.array(filtered_labels),
+        filtered_labels,
         os.path.join(output_dir, basename + '_labels_filtered.tif'),
         chm_array_metadata
         )

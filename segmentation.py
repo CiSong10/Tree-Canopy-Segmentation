@@ -48,7 +48,7 @@ def run_segmentation(chm_name,
         # min_distance=LOCAL_MAXI_WINDOW,
         footprint=np.ones((5, 5)),
         threshold_abs=min_tree_height,
-        exclude_border=True
+        exclude_border=False
         )
     
     local_maxi_mask = np.zeros_like(chm_array_smooth, dtype=int)
@@ -143,7 +143,9 @@ def raster2array(geotif_file):
         )
 
     raster = dataset.GetRasterBand(1)
-    metadata['noDataValue'] = raster.GetNoDataValue() if raster.GetNoDataValue() else -9999
+    if not raster.GetNoDataValue():
+        raise ValueError('Raster NoDataValue should be set.')
+    metadata['noDataValue'] = raster.GetNoDataValue()
     metadata['scaleFactor'] = raster.GetScale()
 
     metadata['bandstats'] = {}
@@ -154,7 +156,7 @@ def raster2array(geotif_file):
     metadata["bandstats"]["stdev"] = round(stats[3], 2)
 
     array = raster.ReadAsArray().astype(np.float32)
-    array[array == metadata["noDataValue"]] = np.nan
+    array[array == metadata["noDataValue"]] = 0
     array = array / metadata["scaleFactor"]
     return array, metadata
 

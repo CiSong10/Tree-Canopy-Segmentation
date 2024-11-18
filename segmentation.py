@@ -207,30 +207,28 @@ def filter_segments(labels, chm_array, min_crown_area=15, min_circularity=0):
     chm_array : numpy.ndarray
         2D array of canopy height model values.
     min_crown_area : int, optional
-        Minimum crown area threshold in pixels (default: 10).
+        Minimum crown area threshold in pixels (default: 15).
     min_circularity : float, optional
         Minimum circularity to keep a segment (default: 0). 
 
     Returns
     -------
     numpy.ndarray
-        Filtered and relabeled segments array where segments not meeting
-        the criteria have been removed.
+        Filtered and relabeled segments meeting the criteria.
     """
     props = regionprops(labels, intensity_image=chm_array)
-    filtered_labels = labels.copy()
-    
-    for prop in props:
+    filtered_labels = np.zeros_like(labels) 
 
+    new_label = 1
+    for prop in props:
         crown_area = prop.area
         perimeter = prop.perimeter
         circularity = (4 * np.pi * crown_area) / (perimeter ** 2) if perimeter > 0 else 0
 
-        # Apply filtering criteria
-        if (crown_area < min_crown_area or circularity < min_circularity):
-            filtered_labels[filtered_labels == prop.label] = 0
-
-    filtered_labels = ndi.label(filtered_labels > 0)[0]
+        if crown_area >= min_crown_area and circularity >= min_circularity:
+            filtered_labels[labels == prop.label] = new_label
+            new_label += 1
+    
     return filtered_labels
 
 

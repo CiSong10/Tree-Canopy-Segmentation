@@ -12,8 +12,9 @@ from shapely.geometry import Point, Polygon, MultiPolygon
 def run_segmentation(chm_name,
                      data_dir="data", output_dir="output", 
                      smoothing_sigma=1.5,
+                     min_distance = 2,
                      compactness=0, 
-                     min_tree_height=2.5, min_crown_area=15, min_circularity=0,
+                     min_tree_height=3, min_crown_area=20, min_circularity=0,
                      ):
     """Execute the tree segmentation workflow.
     1. Loads and preprocesses the CHM data
@@ -22,6 +23,11 @@ def run_segmentation(chm_name,
     4. Performs watershed segmentation
     5. Filters out non-tree structure segments
     6. Saves results as raster and vector files
+
+    Parameters
+    ----------
+    min_distance : int, optional
+        The minimal allowed distance separating peaks in function `peak_local_max()`.
     """
     # Load and process CHM
     chm_file = os.path.join(data_dir, chm_name)
@@ -30,26 +36,14 @@ def run_segmentation(chm_name,
     chm_array[chm_array < min_tree_height] = 0
 
     # Smooth CHM
-    chm_array_smooth = ndi.gaussian_filter(
-        chm_array, smoothing_sigma, mode='constant', truncate=2.0
-        )
+    chm_array_smooth = ndi.gaussian_filter(chm_array, smoothing_sigma, mode='constant', truncate=2.0)
     chm_array_smooth[chm_array == 0] = 0
 
     # Save smoothed CHM
-    array2raster(
-        chm_array_smooth,
-        os.path.join(output_dir, basename + '_smoothed.tif'),
-        chm_array_metadata
-        )
+    array2raster(chm_array_smooth, os.path.join(output_dir, basename + '_smoothed.tif'), chm_array_metadata)
 
     # Detect tree tops
-    local_maxi_coords = peak_local_max(
-        chm_array_smooth,
-        # min_distance=LOCAL_MAXI_WINDOW,
-        footprint=np.ones((5, 5)),
-        threshold_abs=min_tree_height,
-        exclude_border=False
-        )
+    local_maxi_coords = peak_local_max(chm_array_smooth, min_distance=min_distance, threshold_abs=min_tree_height, exclude_border=False)
     
     local_maxi_mask = np.zeros_like(chm_array_smooth, dtype=int)
     local_maxi_mask[tuple(local_maxi_coords.T)] = 1
@@ -60,20 +54,11 @@ def run_segmentation(chm_name,
 
     chm_labels = watershed(chm_array_smooth, markers, mask=chm_mask, compactness=compactness)
 
-    array2raster(
-        chm_labels,
-        os.path.join(output_dir, basename + '_labels.tif'),
-        chm_array_metadata
-        )
+    array2raster(chm_labels, os.path.join(output_dir, basename + '_labels.tif'), chm_array_metadata)
     
     filtered_labels = filter_segments(chm_labels, chm_array_smooth, min_crown_area, min_circularity)
 
-    array2raster(
-        filtered_labels,
-        os.path.join(output_dir, basename + '_labels_filtered.tif'),
-        chm_array_metadata,
-        GDALDataType="int"
-        )
+    array2raster(filtered_labels, os.path.join(output_dir, basename + '_labels_filtered.tif'), chm_array_metadata, GDALDataType="int")
 
     tree_tops = local_maxima_to_points(local_maxi_coords, chm_array_smooth, filtered_labels, chm_array_metadata)
     tree_tops.to_file(os.path.join(output_dir, basename + '_tree_tops.shp'))

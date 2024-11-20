@@ -71,14 +71,11 @@ def run_segmentation(chm_name,
     array2raster(
         filtered_labels,
         os.path.join(output_dir, basename + '_labels_filtered.tif'),
-        chm_array_metadata
+        chm_array_metadata,
+        GDALDataType="int"
         )
 
-    tree_tops = local_maxima_to_points(
-        local_maxi_coords,
-        chm_array_smooth,
-        metadata=chm_array_metadata
-        )
+    tree_tops = local_maxima_to_points(local_maxi_coords, chm_array_smooth, filtered_labels, chm_array_metadata)
     tree_tops.to_file(os.path.join(output_dir, basename + '_tree_tops.shp'))
 
 
@@ -161,7 +158,7 @@ def raster2array(geotif_file):
     return array, metadata
 
 
-def array2raster(array, file_path, metadata):
+def array2raster(array, file_path, metadata, GDALDataType="float"):
     """Save a numpy array as a GeoTIFF raster file.
 
     Parameters
@@ -185,7 +182,11 @@ def array2raster(array, file_path, metadata):
         os.makedirs(output_dir)
 
     driver = gdal.GetDriverByName('GTiff')
-    outRaster = driver.Create(file_path, cols, rows, 1, gdal.GDT_Float32)
+    if GDALDataType == "float":
+        eType = gdal.GDT_Float32
+    elif GDALDataType == "int":
+        eType = gdal.GDT_Int16
+    outRaster = driver.Create(file_path, cols, rows, 1, eType)
     outRaster.SetGeoTransform((metadata['extent_dict']['xMin'], metadata['pixelWidth'], 0, 
                                metadata['extent_dict']['yMax'], 0, metadata['pixelHeight']))
     outband = outRaster.GetRasterBand(1)
@@ -232,9 +233,10 @@ def filter_segments(labels, chm_array, min_crown_area=15, min_circularity=0):
     return filtered_labels
 
 
-def local_maxima_to_points(local_maxi_coords, chm_array, metadata):
+def local_maxima_to_points(local_maxi_coords, chm_array, filtered_labels, metadata):
     """
-    Convert local maxima coordinates to a GeoDataFrame with tree heights
+    Filter tree tops to retain only those within filtered segments,
+    and convert filtered tree tops to a GeoDataFrame with tree heights
     
     Parameters:
     -----------
@@ -242,6 +244,8 @@ def local_maxima_to_points(local_maxi_coords, chm_array, metadata):
         Array of (row, col) coordinates of local maxima.
     chm_array : numpy.ndarray
         The CHM array containing height values.
+    filtered_labels : numpy.ndarray
+        2D array of filtered segments.
     metadata : dict
         Metadata dictionary from raster2array function containing geotransform and projection information.
     
@@ -253,14 +257,16 @@ def local_maxima_to_points(local_maxi_coords, chm_array, metadata):
         - height : Tree heights from CHM
         - tree_id : Unique identifier for each tree
     """
-
     geotransform = metadata['geotransform']
     projection = metadata['projection']
 
-    heights = chm_array[local_maxi_coords[:, 0], local_maxi_coords[:, 1]]
+    row_indices, col_indices = local_maxi_coords[:, 0], local_maxi_coords[:, 1]
+    filtering_mask = filtered_labels[row_indices, col_indices] != 0
+    filtered_tree_tops = local_maxi_coords[filtering_mask]
     
-    x_coords = geotransform[0] + local_maxi_coords[:, 1] * geotransform[1]
-    y_coords = geotransform[3] + local_maxi_coords[:, 0] * geotransform[5]
+    x_coords = geotransform[0] + filtered_tree_tops[:, 1] * geotransform[1]
+    y_coords = geotransform[3] + filtered_tree_tops[:, 0] * geotransform[5]
+    heights = chm_array[filtered_tree_tops[:, 0], filtered_tree_tops[:, 1]]    
     
     geometries = [Point(x, y) for x, y in zip(x_coords, y_coords)]
     

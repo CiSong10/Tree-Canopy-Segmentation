@@ -13,6 +13,7 @@ from skimage.feature import peak_local_max
 from skimage.measure import label, regionprops
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, MultiPolygon
+from tqdm import tqdm
 
 
 def run_segmentation(chm_name,
@@ -73,7 +74,7 @@ def run_segmentation(chm_name,
 
     tree_tops = local_maxima_to_points(local_maxi_coords, chm_array_smooth, filtered_labels, chm_array_metadata)
     tree_tops.to_file(os.path.join(output_dir, basename + '_tree_tops.shp'))
-    print("Tree top saved. Segmentation Complete." \n)
+    print("Tree top saved. Segmentation Complete. \n")
 
 
 def raster2array(geotif_file):
@@ -219,7 +220,7 @@ def filter_segments(labels, chm_array, min_crown_area=15, min_circularity=0):
     filtered_labels = np.zeros_like(labels) 
 
     new_label = 1
-    for prop in props:
+    for prop in tqdm(props, desc="Filtering segments", unit="segment"):
         crown_area = prop.area
         perimeter = prop.perimeter
         circularity = (4 * np.pi * crown_area) / (perimeter ** 2) if perimeter > 0 else 0

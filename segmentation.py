@@ -40,6 +40,7 @@ def run_segmentation(chm_name,
     basename = os.path.basename(chm_file)[0:-4]
     chm_array, chm_array_metadata = raster2array(chm_file)
     chm_array[chm_array < min_tree_height] = 0
+    print("Canopy height model loaded... \n")
 
     # Smooth CHM
     chm_array_smooth = ndi.gaussian_filter(chm_array, smoothing_sigma, mode='constant', truncate=2.0)
@@ -47,9 +48,11 @@ def run_segmentation(chm_name,
 
     # Save smoothed CHM
     array2raster(chm_array_smooth, os.path.join(output_dir, basename + '_smoothed.tif'), chm_array_metadata)
+    print("Smoothed CHM saved... \n")
 
     # Detect tree tops
     local_maxi_coords = peak_local_max(chm_array_smooth, min_distance=min_distance, threshold_abs=min_tree_height, exclude_border=False)
+    print("Tree tops detected... \n")
     
     local_maxi_mask = np.zeros_like(chm_array_smooth, dtype=int)
     local_maxi_mask[tuple(local_maxi_coords.T)] = 1
@@ -61,13 +64,16 @@ def run_segmentation(chm_name,
     chm_labels = watershed(chm_array_smooth, markers, mask=chm_mask, compactness=compactness)
 
     array2raster(chm_labels, os.path.join(output_dir, basename + '_labels.tif'), chm_array_metadata)
+    print("Segmentation Done... \n")
     
     filtered_labels = filter_segments(chm_labels, chm_array_smooth, min_crown_area, min_circularity)
 
     array2raster(filtered_labels, os.path.join(output_dir, basename + '_labels_filtered.tif'), chm_array_metadata, GDALDataType="int")
+    print("Segments filtered and saved... \n")
 
     tree_tops = local_maxima_to_points(local_maxi_coords, chm_array_smooth, filtered_labels, chm_array_metadata)
     tree_tops.to_file(os.path.join(output_dir, basename + '_tree_tops.shp'))
+    print("Tree top saved. Segmentation Complete." \n)
 
 
 def raster2array(geotif_file):

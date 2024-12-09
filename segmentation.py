@@ -1,3 +1,9 @@
+"""
+Author: Charles Song
+Date: 12/2024
+Python Version: 3.11
+"""
+
 import os
 from osgeo import gdal, osr
 import numpy as np
@@ -139,7 +145,8 @@ def raster2array(geotif_file):
 
     array = raster.ReadAsArray().astype(np.float32)
     array[array == metadata["noDataValue"]] = 0
-    array = array / metadata["scaleFactor"]
+    if metadata["scaleFactor"]:
+        array = array / metadata["scaleFactor"]
     return array, metadata
 
 

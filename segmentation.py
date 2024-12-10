@@ -5,12 +5,13 @@ Python Version: 3.11
 """
 
 import os
-from osgeo import gdal, osr
+from osgeo import gdal, osr, ogr
 import numpy as np
-from scipy import ndimage as ndi
+from scipy.ndimage import gaussian_filter, label
 from skimage.segmentation import watershed
 from skimage.feature import peak_local_max
-from skimage.measure import label, regionprops
+from skimage.measure import regionprops
+from skimage.morphology import dilation, disk
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, MultiPolygon
 from tqdm import tqdm
@@ -43,38 +44,39 @@ def run_segmentation(chm_name,
     chm_array[chm_array < min_tree_height] = 0
     print("Canopy height model loaded... \n")
 
-    # Smooth CHM
-    chm_array_smooth = ndi.gaussian_filter(chm_array, smoothing_sigma, mode='constant', truncate=2.0)
+    chm_array_smooth = gaussian_filter(chm_array, smoothing_sigma, mode='constant', truncate=2.0)
     chm_array_smooth[chm_array == 0] = 0
 
-    # Save smoothed CHM
     array2raster(chm_array_smooth, os.path.join(output_dir, basename + '_smoothed.tif'), chm_array_metadata)
     print("Smoothed CHM saved... \n")
 
-    # Detect tree tops
     local_maxi_coords = peak_local_max(chm_array_smooth, min_distance=min_distance, threshold_abs=min_tree_height, exclude_border=False)
     print("Tree tops detected... \n")
     
     local_maxi_mask = np.zeros_like(chm_array_smooth, dtype=int)
     local_maxi_mask[tuple(local_maxi_coords.T)] = 1
-    markers, _ = ndi.label(local_maxi_mask)
-
-    chm_mask = chm_array_smooth
-    chm_mask[chm_array_smooth != 0] = 1
+    markers, _ = label(local_maxi_mask)
+    chm_mask = chm_array_smooth > 0
 
     chm_labels = watershed(chm_array_smooth, markers, mask=chm_mask, compactness=compactness)
 
-    array2raster(chm_labels, os.path.join(output_dir, basename + '_labels.tif'), chm_array_metadata)
+    array2raster(chm_labels, os.path.join(output_dir, basename + '_labels.tif'), chm_array_metadata, GDALDataType="int")
     print("Segmentation Done... \n")
     
     filtered_labels = filter_segments(chm_labels, chm_array_smooth, min_crown_area, min_circularity)
 
     array2raster(filtered_labels, os.path.join(output_dir, basename + '_labels_filtered.tif'), chm_array_metadata, GDALDataType="int")
-    print("Segments filtered and saved... \n")
+    print("Segments filtered and saved as a raster file... \n")
 
     tree_tops = local_maxima_to_points(local_maxi_coords, chm_array_smooth, filtered_labels, chm_array_metadata)
     tree_tops.to_file(os.path.join(output_dir, basename + '_tree_tops.shp'))
-    print("Tree top saved. Segmentation Complete. \n")
+    print("Tree top saved. \n")
+
+    raster_to_polygons(os.path.join(output_dir, basename + '_labels_filtered.tif'), 
+                       os.path.join(output_dir, basename + '_segmentations.shp'))
+    print("Segments saved as a shapefile... \n")
+
+    print("Segmentation Complete.")
 
 
 def raster2array(geotif_file):
@@ -281,7 +283,7 @@ def local_maxima_to_points(local_maxi_coords, chm_array, filtered_labels, metada
     return gdf
 
 
-# def raster2polygons(raster_array, metadata, output_file):
+def raster_to_polygons(raster_file, output_file, mask=None):
     """
     Converts a labeled raster array into polygon features.
 
@@ -289,8 +291,6 @@ def local_maxima_to_points(local_maxi_coords, chm_array, filtered_labels, metada
     ----------
     raster_array : numpy.ndarray
         2D array where each unique value (except 0) represents a distinct polygon label.
-    metadata : dict
-        Metadata dictionary with spatial reference and geotransform info.
     output_file : str
         Path to save the output polygon shapefile.
     
@@ -299,20 +299,20 @@ def local_maxima_to_points(local_maxi_coords, chm_array, filtered_labels, metada
     geopandas.GeoDataFrame
         GeoDataFrame of polygons.
     """
-    geotransform = metadata['geotransform']
-    projection = metadata['projection']
+    raster = gdal.Open(raster_file)
+    band = raster.GetRasterBand(1)
 
-    polygons = []
-    labels = []
-    
-    for region in regionprops(raster_array):
-        if region.label == 0:
-            continue
-        pass
-    
-    # Create GeoDataFrame and save to file
-    gdf = gpd.GeoDataFrame({'label': labels, 'geometry': polygons}, crs=projection)
-    gdf = gdf[gdf.is_valid]  # Remove invalid geometries
-    gdf.to_file(output_file)
+    proj = raster.GetProjection()
+    shp_proj = osr.SpatialReference()
+    shp_proj.ImportFromWkt(proj)
 
-    return gdf
+    call_drive = ogr.GetDriverByName('ESRI Shapefile')
+    create_shp = call_drive.CreateDataSource(output_file)
+    shp_layer = create_shp.CreateLayer('layername', srs=shp_proj)
+
+    new_field = ogr.FieldDefn(str('tree_id'), ogr.OFTInteger)
+    shp_layer.CreateField(new_field)
+
+    gdal.Polygonize(band, mask, shp_layer, 0, [], callback=None)
+    
+    create_shp.Destroy()
